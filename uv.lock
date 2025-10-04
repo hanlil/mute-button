@@ -293,12 +293,14 @@ source = { editable = "." }
 dependencies = [
     { name = "pyaudiowpatch" },
     { name = "reflex" },
+    { name = "reflex-dynoselect" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "pyaudiowpatch", specifier = ">=0.2.12.7" },
     { name = "reflex", specifier = ">=0.8.0" },
+    { name = "reflex-dynoselect", specifier = ">=0.1.0" },
 ]
 
 [[package]]
@@ -477,6 +479,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/48/01/f7a471af9dce698d2db6b66a2970039be040707dad20b42308e023aaa792/reflex-0.8.0.tar.gz", hash = "sha256:78d810fb7f05b65fd81d39a4b62b7b9716c0ff7fe7a84bedfc403d544ab700b4", size = 583434, upload-time = "2025-07-01T19:23:00.861Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/27/df1ef5185538b0221eb964a36b4ef6db29c76a1dff12be0ea7ab39129348/reflex-0.8.0-py3-none-any.whl", hash = "sha256:7e21b092fbb3d1c2d0add84c5f482ba7e6573a0c05dfa690d6f12d8f79531257", size = 876944, upload-time = "2025-07-01T19:22:58.958Z" },
+]
+
+[[package]]
+name = "reflex-dynoselect"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "reflex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/34/03/8504bd5938d627a251181a4e7c25b0acf7cca0a0bfe3d18f959a9885b9ab/reflex_dynoselect-0.1.0.tar.gz", hash = "sha256:c2232318ade6d66e3bff8509df6520f1a6f35bbc710b44a02638feb4fcd9cb04", size = 18445, upload-time = "2024-05-13T22:08:35.006Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/ad/65231700c9948ebd28faa97647a3ea95224d824d2e70719b6f872e09ad12/reflex_dynoselect-0.1.0-py3-none-any.whl", hash = "sha256:04453db8f3d60da952e62b9a32b6edffeefaccf6972a4d18dbdaca206353f41e", size = 17318, upload-time = "2024-05-13T22:08:33.246Z" },
 ]
 
 [[package]]

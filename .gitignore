@@ -3,6 +3,7 @@
 .states
 .web
 assets/external/
+uploaded_files/
 __pycache__/
 .idea
 .venv

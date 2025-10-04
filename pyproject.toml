@@ -5,6 +5,7 @@ description = "Make annoying people shut up"
 dependencies = [
     "pyaudiowpatch>=0.2.12.7",
     "reflex>=0.8.0",
+    "reflex-dynoselect>=0.1.0",
 ]
 
 [build-system]
