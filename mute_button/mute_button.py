@@ -137,6 +137,9 @@ class State(rx.State):
             shutil.copy(src, dst)
             global speaker_options
             speaker_options = _get_speaker_options()
+            yield rx.toast.success('Saved sample to speaker ' + self.speaker_for_sample)
+        else:
+            yield rx.toast.error('Could not save sample to speaker ' + self.speaker_for_sample)
 
     @rx.event
     def find_audio_devices(self):
