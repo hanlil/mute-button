@@ -2,6 +2,7 @@
 *.db
 .states
 .web
+reflex.lock
 assets/external/
 uploaded_files/
 __pycache__/

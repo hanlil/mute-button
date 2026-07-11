@@ -1,5 +1,7 @@
 import asyncio
 import logging as log
+import numpy as np
+from numpy.typing import NDArray
 import os
 import pyaudiowpatch as pyaudio
 import queue
@@ -8,13 +10,14 @@ import shutil
 import uuid
 import wave
 
-from collections import defaultdict
+from collections import defaultdict, deque
 
 # Patch must be imported before reflex_dynoselect to apply
 import mute_button.dynoselect_patch
 from reflex_dynoselect import dynoselect
 
 from mute_button.component_builders import *
+from mute_button.speaker_recognition import get_embedding_for_audio_file, get_embedding_for_audio_sample, get_max_cosine_similarity
 
 
 log.basicConfig(level=log.INFO)
@@ -29,12 +32,10 @@ if os.path.exists(RECORDING_DIR):
 os.makedirs(RECORDING_DIR)
 
 client_audio_recording_queues = defaultdict(queue.Queue)
+client_audio_analysis_queues = defaultdict(deque)
 
 def _get_speaker_options():
-    return [{'value': i, 'label': i} for i in os.listdir(SPEAKERS_DIR) if os.path.isdir(os.path.join(SPEAKERS_DIR, i))]
-
-speaker_options = _get_speaker_options()
-
+    return [i for i in os.listdir(SPEAKERS_DIR) if os.path.isdir(os.path.join(SPEAKERS_DIR, i))]
 
 class State(rx.State):
     _device_map: dict
@@ -44,6 +45,9 @@ class State(rx.State):
     playback_device: str
     do_forward: bool = False
     do_mute: bool = False
+    speaker_options: list[str] = _get_speaker_options()
+    muted_speaker: str = ''
+    _muted_speaker_embeddings: NDArray[np.float32] = None
     do_record: bool = False
     recording_exists: bool = False
     recording_path_cache: list = []
@@ -92,6 +96,23 @@ class State(rx.State):
         self.do_forward = value
 
     @rx.event
+    def toggle_mute(self, value: bool):
+        self.do_mute = value
+
+    @rx.event
+    def select_muted_speaker(self, selected):
+        self.muted_speaker = selected
+        speaker_dir = os.path.join(SPEAKERS_DIR, self.muted_speaker)
+        speaker_sample_files = []
+        if os.path.isdir(speaker_dir):
+            speaker_sample_files = [f for f in os.listdir(speaker_dir) if f.endswith('.wav')]
+        speaker_embeddings = [get_embedding_for_audio_file(os.path.join(speaker_dir, f)) for f in speaker_sample_files]
+        if speaker_embeddings:
+            self._muted_speaker_embeddings = np.concatenate(speaker_embeddings, axis=0)
+        else:
+            self._muted_speaker_embeddings = None
+
+    @rx.event
     def start_recording(self):
         client_audio_recording_queues[self.router.session.client_token] = queue.Queue()
         self.do_record = True
@@ -135,8 +156,7 @@ class State(rx.State):
             src = os.path.join(UPLOAD_DIR, self.recording_path_cache[0])
             dst = os.path.join(speaker_dir, os.path.relpath(src, RECORDING_DIR))
             shutil.copy(src, dst)
-            global speaker_options
-            speaker_options = _get_speaker_options()
+            self.speaker_options = _get_speaker_options()
             yield rx.toast.success('Saved sample to speaker ' + self.speaker_for_sample)
         else:
             yield rx.toast.error('Could not save sample to speaker ' + self.speaker_for_sample)
@@ -152,7 +172,19 @@ class State(rx.State):
 
     def _create_audio_callback(self, output_stream, client_token):
         def callback(in_data, frame_count, time_info, status):
-            if self.do_forward and not self.do_mute:
+            loopback_device_info = self._device_map.get(self._loopback_devices.get(self.loopback_device))
+            client_audio_analysis_queues[client_token].append(in_data)
+            muted = False
+            if self.do_mute and self.muted_speaker != '' and loopback_device_info is not None:
+                channels = loopback_device_info['maxInputChannels']
+                audio_bytes = b"".join(client_audio_analysis_queues[client_token])
+                audio = np.frombuffer(audio_bytes, dtype=np.int16)
+                audio = audio.reshape(-1, channels)
+                audio = audio.astype(np.float32) / 32768.0
+                emb = get_embedding_for_audio_sample(audio, loopback_device_info['defaultSampleRate'])
+                similarity = get_max_cosine_similarity(self._muted_speaker_embeddings, emb)
+                muted = similarity > 0.94
+            if self.do_forward and not muted:
                 output_stream.write(in_data)
             if self.do_record:
                 client_audio_recording_queues[client_token].put(in_data)
@@ -179,11 +211,12 @@ class State(rx.State):
                         playback_device_info = self._device_map.get(self._playback_devices.get(self.playback_device))
                         if loopback_device_info and playback_device_info:
                             input_sample_rate = int(loopback_device_info['defaultSampleRate'])
-                            frames_per_buffer = int(input_sample_rate / 20)
+                            frames_per_buffer = int(input_sample_rate / 5)
                             audio_output_stream = pa.open(format=pyaudio.paInt16, channels=playback_device_info['maxOutputChannels'],
                                                           rate=int(playback_device_info['defaultSampleRate']), frames_per_buffer=frames_per_buffer, output=True,
                                                           output_device_index=playback_device_info['index'])
                             client_audio_recording_queues[self.router.session.client_token] = queue.Queue()
+                            client_audio_analysis_queues[self.router.session.client_token] = deque(maxlen=6)
                             input_callback = self._create_audio_callback(audio_output_stream, self.router.session.client_token)
                             audio_input_stream = pa.open(format=pyaudio.paInt16, channels=loopback_device_info['maxInputChannels'],
                                                          rate=input_sample_rate, frames_per_buffer=frames_per_buffer, input=True,
@@ -206,6 +239,7 @@ class State(rx.State):
                         audio_output_stream.close()
                         processing = False
                         del client_audio_recording_queues[self.router.session.client_token]
+                        del client_audio_analysis_queues[self.router.session.client_token]
                         if not stale:
                             self.do_record = False
                         log.info('Stopped processing audio from {} to {}.'.format(loopback_device, playback_device))
@@ -256,6 +290,17 @@ def index() -> rx.Component:
                                 'Forward audio from capture to playback device'
                             ),
                             labeled_component(
+                                rx.hstack(
+                                    rx.switch(checked=State.do_mute, on_change=State.toggle_mute),
+                                    rx.select(
+                                        State.speaker_options,
+                                        placeholder='Select speaker',
+                                        on_change=State.select_muted_speaker,
+                                    ),
+                                ),
+                                'Mute selected speaker'
+                            ),
+                            labeled_component(
                                 rx.vstack(
                                     rx.hstack(
                                         rx.cond(
@@ -275,7 +320,7 @@ def index() -> rx.Component:
                                     rx.hstack(
                                         rx.button('Save sample to speaker', variant='surface', color_sheme='indigo', width='177px', on_click=State.save_sample, disabled=State.save_sample_disabled),
                                         dynoselect(
-                                            speaker_options,
+                                            [{'value': i, 'label': i} for i in _get_speaker_options()],
                                             create_option=dict(value='custom', label='Create new "{}"'),
                                             placeholder='Select or add speaker',
                                             search_placeholder='Search',

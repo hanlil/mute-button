@@ -151,3 +151,15 @@ def patched_get_component(
 
 # Replace buggy function with patch
 reflex_dynoselect.Dynoselect.get_component = patched_get_component
+
+@rx.event
+def set_search_phrase(self, value: str):
+    self.search_phrase = value
+
+@rx.event
+def set_selected(self, value: dict[str, str]):
+    self.selected = value
+
+# Add setters which are not automatically generated in newer versions of reflex
+reflex_dynoselect.Dynoselect.set_search_phrase = set_search_phrase
+reflex_dynoselect.Dynoselect.set_selected = set_selected
