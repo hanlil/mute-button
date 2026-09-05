@@ -17,10 +17,12 @@ import mute_button.dynoselect_patch
 from reflex_dynoselect import dynoselect
 
 from mute_button.component_builders import *
-from mute_button.speaker_recognition import get_embedding_for_audio_file, get_embedding_for_audio_sample, get_max_cosine_similarity
+from mute_button.speaker_recognition import get_embedding_for_audio_file, get_embedding_for_audio_sample, get_cosine_similarities, get_weighted_similarity_score
 
 
 log.basicConfig(level=log.INFO)
+
+SPEAKER_EMBEDDING_MODEL_PATH = 'models/speaker_encoder_fp32.onnx'
 
 UPLOAD_DIR = rx.get_upload_dir()
 AUDIO_DIR = os.path.join(UPLOAD_DIR, 'audio')
@@ -106,7 +108,7 @@ class State(rx.State):
         speaker_sample_files = []
         if os.path.isdir(speaker_dir):
             speaker_sample_files = [f for f in os.listdir(speaker_dir) if f.endswith('.wav')]
-        speaker_embeddings = [get_embedding_for_audio_file(os.path.join(speaker_dir, f)) for f in speaker_sample_files]
+        speaker_embeddings = [get_embedding_for_audio_file(os.path.join(speaker_dir, f), model_path=SPEAKER_EMBEDDING_MODEL_PATH) for f in speaker_sample_files]
         if speaker_embeddings:
             self._muted_speaker_embeddings = np.concatenate(speaker_embeddings, axis=0)
         else:
@@ -181,9 +183,10 @@ class State(rx.State):
                 audio = np.frombuffer(audio_bytes, dtype=np.int16)
                 audio = audio.reshape(-1, channels)
                 audio = audio.astype(np.float32) / 32768.0
-                emb = get_embedding_for_audio_sample(audio, loopback_device_info['defaultSampleRate'])
-                similarity = get_max_cosine_similarity(self._muted_speaker_embeddings, emb)
-                muted = similarity > 0.94
+                emb = get_embedding_for_audio_sample(audio, loopback_device_info['defaultSampleRate'], model_path=SPEAKER_EMBEDDING_MODEL_PATH)
+                similarities = get_cosine_similarities(self._muted_speaker_embeddings, emb)
+                similarity = get_weighted_similarity_score(similarities)
+                muted = similarity > 0.95
             if self.do_forward and not muted:
                 output_stream.write(in_data)
             if self.do_record:
